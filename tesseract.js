@@ -44,7 +44,7 @@ function initShaderProgram(vsSource, fsSource, attribs, uniforms) {
   };
 }
 
-function initBuffersSpinner(squareAttribs) {
+function initBuffers(squareAttribs) {
   const vao = vao_ext.createVertexArrayOES();
   vao_ext.bindVertexArrayOES(vao);
 
@@ -79,7 +79,7 @@ function initBuffersSpinner(squareAttribs) {
   };
 }
 
-function initGLStateSpinner() {
+function initGLState() {
   gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.clearDepth(1.0);
   gl.enable(gl.DEPTH_TEST);
@@ -87,46 +87,23 @@ function initGLStateSpinner() {
 
   const squareShaderInfo = initShaderProgram(
    `attribute vec2 position;
-    varying vec2 coords;
+    attribute vec3 normal;
+    attribute vec3 color;
     uniform mat2 projMatrix;
 
     void main() {
       gl_Position = vec4(projMatrix * position, 0.0, 1.0);
-      coords = position;
     }`,
 
    `precision highp float;
 
-    varying vec2 coords;
-    uniform float aliasUnit;
-    const float innerRadius = 10.0 / 14.0;
-    const float middleRadius = (1.0 + innerRadius) / 2.0;
-    const float headRadius = (1.0 - innerRadius) / 2.0;
-    const float PI = 3.14159265358979;
-
     void main() {
-      float dist = length(coords);
-      if (dist > 1.0 + aliasUnit || dist < innerRadius - aliasUnit) {
-        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
-      }
-      // This is a pile of stuff to anti-alias the sharp lines in the spinner,
-      // and avoid branches while doing it.
-      float head_dist = length(vec2(coords.x, coords.y - middleRadius));
-      float gradient = atan(coords.x, -coords.y) / (2.0 * PI) + 0.5;
-      bool in_head = coords.x < 0.0 && head_dist < headRadius + aliasUnit;
-      float radiusPart = in_head ? headRadius : innerRadius;
-      bool test = dist < 1.0 - aliasUnit || in_head;
-      float edge0 = test ? radiusPart - aliasUnit : 1.0 + aliasUnit;
-      float edge1 = test ? radiusPart + aliasUnit : 1.0 - aliasUnit;
-      float step = smoothstep(edge0, edge1, in_head ? head_dist : dist);
-      float grey = gradient * step + (in_head ? 1.0 - step : 0.0);
-      gl_FragColor = vec4(grey, grey, grey, 1.0);
+      gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
     }`,
-    ["position"],
-    ["projMatrix", "aliasUnit"],
+    ["position", "normal", "color"],
+    ["projMatrix"],
   );
-  const buffers = initBuffersSpinner(squareShaderInfo.attribs);
+  const buffers = initBuffers(squareShaderInfo.attribs);
   return {
     buffers: buffers,
     shaders: {
@@ -147,8 +124,8 @@ const cameraDirection = Float32Array.from([0.0, 0.0, 1.0]);
 // No mathematical basis, this was tuned to look good.
 const unitAdjust = 1.55;
 
-function animateSpinner(time) {
-  requestAnimationFrame(animateSpinner);
+function animate(time) {
+  requestAnimationFrame(animate);
 
   if (!first_time) {
     first_time = time;
@@ -198,6 +175,6 @@ Your browser is: <pre style="font-size:1vw">${navigator.userAgent}</pre>`;
 } else {
   canvas.style.display = "initial";
   error_text.style.display = "none";
-  gl_state = initGLStateSpinner();
-  requestAnimationFrame(animateSpinner);
+  gl_state = initGLState();
+  requestAnimationFrame(animate);
 }
