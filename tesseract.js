@@ -51,31 +51,60 @@ function initBuffers(squareAttribs) {
   const vertexBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
 
-  // TRIANGLE_FAN data, 2 points per tri
+  // TRIANGLE_STRIP data, vec3 vertex + (i8) vec3 normal + pad, (u8) vec3 color + pad
   const vertexData = [
-    -1.05, -1.05,
-    1.05, -1.05,
-    1.05, 1.05,
-    -1.05, 1.05,
+     1.05, -1.05, 0.0, 0x00, 0x7F, 0x7F, 0, 0xFF, 0x0, 0x0, 0x0,
+     1.05,  1.05, 0.0, 0x00, 0x7F, 0x7F, 0, 0xFF, 0x0, 0x0, 0x0,
+    -1.05, -1.05, 0.0, 0x00, 0x7F, 0x7F, 0, 0xFF, 0x0, 0x0, 0x0,
+    -1.05,  1.05, 0.0, 0x00, 0x7F, 0x7F, 0, 0xFF, 0x0, 0x0, 0x0,
   ];
 
-  gl.bufferData(gl.ARRAY_BUFFER,
-    new Float32Array(vertexData),
-    gl.STATIC_DRAW);
+  const stride = 20;
+  const elements = 4;
+  const vertexArray = new ArrayBuffer(stride * elements);
 
-  const numComponents = 2;
-  const type = gl.FLOAT;
-  const normalize = false;
-  const stride = 0;
-  const offset = 0;
+  var numComponents = 3;
+  var type = gl.FLOAT;
+  var normalize = false;
+  var offset = 0;
+  const floatBuffer = new Float32Array(vertexArray)
   gl.vertexAttribPointer(squareAttribs.position, numComponents, type, normalize, stride, offset);
+  for (var i = 0; i < elements; i++) {
+    floatBuffer.set(vertexData.slice(i*11, i*11 + 3), i * 5)
+  }
+
+  numComponents = 4;
+  type = gl.BYTE;
+  normalize = true;
+  offset = 12;
+  const int8Buffer = new Int8Array(vertexArray)
+  gl.vertexAttribPointer(squareAttribs.normal, numComponents, type, normalize, stride, offset);
+  for (var i = 0; i < elements; i++) {
+    int8Buffer.set(vertexData.slice(i*11 + 3, i*11 + 7), i * 20 + 12)
+  }
+
+  type = gl.UNSIGNED_BYTE;
+  normalize = true;
+  offset = 16;
+  const uint8Buffer = new Uint8Array(vertexArray)
+  gl.vertexAttribPointer(squareAttribs.color, numComponents, type, normalize, stride, offset);
+  for (var i = 0; i < elements; i++) {
+    uint8Buffer.set(vertexData.slice(i*11 + 7, i*11 + 11), i * 20 + 16)
+  }
+
+  gl.bufferData(gl.ARRAY_BUFFER, vertexArray, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
   gl.enableVertexAttribArray(squareAttribs.position);
+  gl.enableVertexAttribArray(squareAttribs.normal);
+  gl.enableVertexAttribArray(squareAttribs.color);
   vao_ext.bindVertexArrayOES(null);
 
   return {
-    vertex: vao,
-    vertexCount: vertexData.length / numComponents,
+    vao: vao,
+    vbo: vertexBuffer,
+    vertexData: vertexData,
+    vertexArray: vertexArray,
+    vertexCount: elements,
   };
 }
 
@@ -86,19 +115,27 @@ function initGLState() {
   gl.depthFunc(gl.LEQUAL);
 
   const squareShaderInfo = initShaderProgram(
-   `attribute vec2 position;
+   `attribute vec3 position;
     attribute vec3 normal;
     attribute vec3 color;
+
+    varying vec3 normal_frag;
+    varying vec3 color_frag;
     uniform mat2 projMatrix;
 
     void main() {
-      gl_Position = vec4(projMatrix * position, 0.0, 1.0);
+      gl_Position = vec4(projMatrix * vec2(position), 0.0, 1.0);
+      color_frag = color;
+      normal_frag = normal;
     }`,
 
    `precision highp float;
 
+    varying vec3 normal_frag;
+    varying vec3 color_frag;
+
     void main() {
-      gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+      gl_FragColor = vec4(color_frag, 1.0);
     }`,
     ["position", "normal", "color"],
     ["projMatrix"],
@@ -158,8 +195,8 @@ function animate(time) {
   projectionMatrix[3] = cos / height;
   gl.uniformMatrix2fv(
     gl_state.shaders.square.uniforms.projMatrix, false, projectionMatrix);
-  vao_ext.bindVertexArrayOES(gl_state.buffers.vertex);
-  gl.drawArrays(gl.TRIANGLE_FAN, 0, gl_state.buffers.vertexCount);
+  vao_ext.bindVertexArrayOES(gl_state.buffers.vao);
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, gl_state.buffers.vertexCount);
 }
 
 const error_text = document.getElementById("error_text");
