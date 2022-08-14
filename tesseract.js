@@ -44,7 +44,7 @@ function initShaderProgram(vsSource, fsSource, attribs, uniforms) {
   };
 }
 
-function addPolygon(buffers, bufferIdx, color, points) {
+function addPolygon(buffers, color, points) {
   color = color | 0;
   const v0x = points[3] - points[0];
   const v0y = points[4] - points[1];
@@ -68,12 +68,17 @@ function addPolygon(buffers, bufferIdx, color, points) {
 
   const floatBuffer = new Float32Array(buffers.vertexArray);
   const uint32Buffer = new Uint32Array(buffers.vertexArray);
+  const index0 = buffers.vertexCount;
 
-  for (var i = 0; i < points.length; i++) {
-    floatBuffer.set(points.slice(i*3, i*3 + 3), (i + bufferIdx) * 5);
-    uint32Buffer.set(norm_color, (i + bufferIdx) * 5 + 3);
+  for (var i = 0; i < (points.length / 3) | 0; i++) {
+    floatBuffer.set(points.slice(i*3, i*3 + 3), buffers.vertexCount * 5);
+    uint32Buffer.set(norm_color, buffers.vertexCount * 5 + 3);
+    if (i > 1) {
+      buffers.indexArray.set([index0, buffers.vertexCount - 1, buffers.vertexCount], buffers.indexCount);
+      buffers.indexCount += 3;
+    }
+    buffers.vertexCount++;
   }
-  buffers.vertexCount += (points.length / 3) | 0;
 }
 
 function initBuffers(squareAttribs) {
@@ -83,25 +88,29 @@ function initBuffers(squareAttribs) {
   const vertexBuffer = gl.createBuffer();
   gl.bindBuffer(gl.ARRAY_BUFFER, vertexBuffer);
 
-  // TRIANGLE_STRIP data, vec3 vertex + (i8) vec3 normal + pad, (u8) vec3 color + pad
-  const vertexData = [
-     1.05, -1.05, 0.0,
-     1.05,  1.05, 0.0,
-    -1.05, -1.05, 0.0,
-    -1.05,  1.05, 0.0,
-  ];
+  const indexBuffer = gl.createBuffer();
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+
   const stride = 20;
   const vertexArray = new ArrayBuffer(stride * 16);
+  const indexArray = new Uint16Array(128);
 
   const buffers = {
     vao: vao,
     vbo: vertexBuffer,
-    vertexData: vertexData,
+    indexBuffer: indexBuffer,
     vertexArray: vertexArray,
+    indexArray: indexArray,
     vertexCount: 0,
+    indexCount: 0,
   };
 
-  addPolygon(buffers, 0, 0x000000FF, vertexData);
+  addPolygon(buffers, 0x000000FF, [
+    -1, -1, 1,
+     1, -1, 1,
+     1,  1, 1,
+    -1,  1, 1,
+  ]);
 
   var numComponents = 3;
   var type = gl.FLOAT;
@@ -121,10 +130,12 @@ function initBuffers(squareAttribs) {
 
   gl.bufferData(gl.ARRAY_BUFFER, vertexArray, gl.STATIC_DRAW);
   gl.bindBuffer(gl.ARRAY_BUFFER, null);
+  gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indexArray, gl.STATIC_DRAW);
   gl.enableVertexAttribArray(squareAttribs.position);
   gl.enableVertexAttribArray(squareAttribs.normal);
   gl.enableVertexAttribArray(squareAttribs.color);
   vao_ext.bindVertexArrayOES(null);
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
   return buffers;
 }
 
@@ -141,10 +152,10 @@ function initGLState() {
 
     varying vec3 normal_frag;
     varying vec3 color_frag;
-    uniform mat2 projMatrix;
+    uniform mat4 projMatrix;
 
     void main() {
-      gl_Position = vec4(projMatrix * vec2(position), 0.0, 1.0);
+      gl_Position = projMatrix * vec4(position, 1.0);
       color_frag = color;
       normal_frag = normal;
     }`,
@@ -173,8 +184,10 @@ var first_time; // First animation time
 var last_time;  // Last animation time
 var gl_state;
 const projectionMatrix = Float32Array.from([
-  1.0, 0.0,
-  0.0, 1.0,
+  1.0, 0.0, 0.0, 0.0,
+  0.0, 1.0, 0.0, 0.0,
+  0.0, 0.0, 1.0, 0.0,
+  0.0, 0.0, 0.0, 1.0,
 ]);
 const cameraDirection = Float32Array.from([0.0, 0.0, 1.0]);
 // Adjust for antialiasing in an isotropic fashion.
@@ -211,12 +224,12 @@ function animate(time) {
   const sin = scale * Math.sin(speed * (time - first_time));
   projectionMatrix[0] = cos / width;
   projectionMatrix[1] = sin / height;
-  projectionMatrix[2] = -sin / width;
-  projectionMatrix[3] = cos / height;
-  gl.uniformMatrix2fv(
+  projectionMatrix[4] = -sin / width;
+  projectionMatrix[5] = cos / height;
+  gl.uniformMatrix4fv(
     gl_state.shaders.square.uniforms.projMatrix, false, projectionMatrix);
   vao_ext.bindVertexArrayOES(gl_state.buffers.vao);
-  gl.drawArrays(gl.TRIANGLE_STRIP, 0, gl_state.buffers.vertexCount);
+  gl.drawElements(gl.TRIANGLES, gl_state.buffers.indexCount, gl.UNSIGNED_SHORT, 0);
 }
 
 const error_text = document.getElementById("error_text");
