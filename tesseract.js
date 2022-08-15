@@ -106,10 +106,10 @@ function initBuffers(squareAttribs) {
   };
 
   addPolygon(buffers, 0x000000FF, [
-    -1, -1, 1,
-     1, -1, 1,
-     1,  1, 1,
-    -1,  1, 1,
+    -1, -1, 0,
+     1, -1, 0,
+     1,  1, 0,
+    -1,  1, 0,
   ]);
 
   var numComponents = 3;
@@ -152,10 +152,14 @@ function initGLState() {
 
     varying vec3 normal_frag;
     varying vec3 color_frag;
-    uniform mat4 projMatrix;
+    uniform mat3 modelMatrix;
+    uniform vec3 projVector;
 
     void main() {
-      gl_Position = projMatrix * vec4(position, 1.0);
+      const float view = 1.5;
+      vec3 pos = modelMatrix * position;
+      vec3 proj = projVector * pos;
+      gl_Position = vec4(proj.xy, proj.z + view, -view*projVector.z - pos.z);
       color_frag = color;
       normal_frag = normal;
     }`,
@@ -169,7 +173,7 @@ function initGLState() {
       gl_FragColor = vec4(color_frag, 1.0);
     }`,
     ["position", "normal", "color"],
-    ["projMatrix"],
+    ["projVector", "modelMatrix"],
   );
   const buffers = initBuffers(squareShaderInfo.attribs);
   return {
@@ -183,11 +187,10 @@ function initGLState() {
 var first_time; // First animation time
 var last_time;  // Last animation time
 var gl_state;
-const projectionMatrix = Float32Array.from([
-  1.0, 0.0, 0.0, 0.0,
-  0.0, 1.0, 0.0, 0.0,
-  0.0, 0.0, 1.0, 0.0,
-  0.0, 0.0, 0.0, 1.0,
+const modelMatrix = Float32Array.from([
+  1.0, 0.0, 0.0,
+  0.0, 1.0, 0.0,
+  0.0, 0.0, 1.0,
 ]);
 const cameraDirection = Float32Array.from([0.0, 0.0, 1.0]);
 // Adjust for antialiasing in an isotropic fashion.
@@ -210,7 +213,8 @@ function animate(time) {
 
   const width = innerWidth;
   const height = innerHeight;
-  const scale = Math.min(height, width) * 0.28;
+  const scale = Math.min(height, width);
+  const fov = 1 / Math.tan(30 / 2 * Math.PI / 180);
   if (width !== canvas.width || height !== canvas.height) {
     canvas.width = width;
     canvas.height = height;
@@ -220,14 +224,19 @@ function animate(time) {
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
   const speed = 0.004;
-  const cos = scale * Math.cos(speed * (time - first_time));
-  const sin = scale * Math.sin(speed * (time - first_time));
-  projectionMatrix[0] = cos / width;
-  projectionMatrix[1] = sin / height;
-  projectionMatrix[4] = -sin / width;
-  projectionMatrix[5] = cos / height;
-  gl.uniformMatrix4fv(
-    gl_state.shaders.square.uniforms.projMatrix, false, projectionMatrix);
+  const cos = Math.cos(speed * (time - first_time));
+  const sin = Math.sin(speed * (time - first_time));
+  modelMatrix[0] = cos;
+  modelMatrix[1] = sin;
+  modelMatrix[3] = -sin;
+  modelMatrix[4] = cos;
+  const projVx = fov * scale / width;
+  const projVy = fov * scale / height;
+  const projVz = -fov;
+  gl.uniformMatrix3fv(
+    gl_state.shaders.square.uniforms.modelMatrix, false, modelMatrix);
+  gl.uniform3f(
+    gl_state.shaders.square.uniforms.projVector, projVx, projVy, projVz);
   vao_ext.bindVertexArrayOES(gl_state.buffers.vao);
   gl.drawElements(gl.TRIANGLES, gl_state.buffers.indexCount, gl.UNSIGNED_SHORT, 0);
 }
