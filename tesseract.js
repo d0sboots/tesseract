@@ -4,6 +4,15 @@ const canvas = document.getElementById("canvas");
 const gl = canvas.getContext("webgl", {antialias: true});
 const vao_ext = gl.getExtension("OES_vertex_array_object");
 
+var first_time; // First animation time
+var last_time;  // Last animation time
+var gl_state;
+const modelMatrix = Float32Array.from([
+  1.0, 0.0, 0.0,
+  0.0, 1.0, 0.0,
+  0.0, 0.0, 1.0,
+]);
+
 function loadShader(program, type, source) {
   const shader = gl.createShader(type);
   gl.shaderSource(shader, source);
@@ -92,7 +101,7 @@ function initBuffers(squareAttribs) {
   gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
 
   const stride = 20;
-  const vertexArray = new ArrayBuffer(stride * 16);
+  const vertexArray = new ArrayBuffer(stride * 64);
   const indexArray = new Uint16Array(128);
 
   const buffers = {
@@ -106,10 +115,40 @@ function initBuffers(squareAttribs) {
   };
 
   addPolygon(buffers, 0x000000FF, [
-    -1, -1, 0,
-     1, -1, 0,
-     1,  1, 0,
-    -1,  1, 0,
+    -1, -1,  1,
+     1, -1,  1,
+     1,  1,  1,
+    -1,  1,  1,
+  ]);
+  addPolygon(buffers, 0x000000FF, [
+    -1,  1, -1,
+     1,  1, -1,
+     1, -1, -1,
+    -1, -1, -1,
+  ]);
+  addPolygon(buffers, 0x0000FF00, [
+    -1,  1, -1,
+    -1,  1,  1,
+     1,  1,  1,
+     1,  1, -1,
+  ]);
+  addPolygon(buffers, 0x0000FF00, [
+     1,  1, -1,
+     1,  1,  1,
+    -1,  1,  1,
+    -1,  1, -1,
+  ]);
+  addPolygon(buffers, 0x00FF0000, [
+     1,  1, -1,
+     1,  1,  1,
+     1, -1,  1,
+     1, -1, -1,
+  ]);
+  addPolygon(buffers, 0x00FF0000, [
+    -1, -1, -1,
+    -1, -1,  1,
+    -1,  1,  1,
+    -1,  1, -1,
   ]);
 
   var numComponents = 3;
@@ -144,6 +183,7 @@ function initGLState() {
   gl.clearDepth(1.0);
   gl.enable(gl.DEPTH_TEST);
   gl.depthFunc(gl.LEQUAL);
+  gl.enable(gl.CULL_FACE);
 
   const squareShaderInfo = initShaderProgram(
    `attribute vec3 position;
@@ -184,18 +224,15 @@ function initGLState() {
   };
 }
 
-var first_time; // First animation time
-var last_time;  // Last animation time
-var gl_state;
-const modelMatrix = Float32Array.from([
-  1.0, 0.0, 0.0,
-  0.0, 1.0, 0.0,
-  0.0, 0.0, 1.0,
-]);
-const cameraDirection = Float32Array.from([0.0, 0.0, 1.0]);
-// Adjust for antialiasing in an isotropic fashion.
-// No mathematical basis, this was tuned to look good.
-const unitAdjust = 1.55;
+function makeRotation(dt) {
+  const speed = 0.001;
+  const cos = Math.cos(speed * dt);
+  const sin = Math.sin(speed * dt);
+  modelMatrix[0] = cos;
+  modelMatrix[2] = sin;
+  modelMatrix[6] = -sin;
+  modelMatrix[8] = cos;
+}
 
 function animate(time) {
   requestAnimationFrame(animate);
@@ -218,18 +255,11 @@ function animate(time) {
   if (width !== canvas.width || height !== canvas.height) {
     canvas.width = width;
     canvas.height = height;
-    gl.uniform1f(gl_state.shaders.square.uniforms.aliasUnit, unitAdjust / scale);
     gl.viewport(0, 0, width, height);
   }
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  const speed = 0.004;
-  const cos = Math.cos(speed * (time - first_time));
-  const sin = Math.sin(speed * (time - first_time));
-  modelMatrix[0] = cos;
-  modelMatrix[1] = sin;
-  modelMatrix[3] = -sin;
-  modelMatrix[4] = cos;
+  makeRotation(time - first_time);
   const projVx = fov * scale / width;
   const projVy = fov * scale / height;
   const projVz = -fov;
