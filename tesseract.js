@@ -6,7 +6,7 @@ const vao_ext = gl.getExtension("OES_vertex_array_object");
 
 var first_time; // First animation time
 var last_time;  // Last animation time
-var gl_state;
+var gl_state;   // Object containing *all* the persistent GL state
 const modelMatrix = Float32Array.from([
   1.0, 0.0, 0.0,
   0.0, 1.0, 0.0,
@@ -53,6 +53,16 @@ function initShaderProgram(vsSource, fsSource, attribs, uniforms) {
   };
 }
 
+// Add a single polygon to the vertex and index arrays in "buffers".
+// The color of the entire polygon is the 32-bit RGBA uint "color", in
+// little-endian format, so 0x000000FF is red.
+// The vertices are specified as x,y,z triples in "points", packed in that
+// order. The polygon should be planar, and normals will be calculated
+// assuming CCW winding and equal normals for all vertices.
+// The output is 20-byte interleaved vertex data, with 12 bytes of float
+// positions, 3 bytes of uint8 normals, 1 byte padding, and 4 bytes of uint8 color.
+// The index buffer is 6 bytes per triangle, 3 uint16 indices each. There will
+// be a total of len(points) - 6 indices added.
 function addPolygon(buffers, color, points) {
   color = color | 0;
   const v0x = points[3] - points[0];
@@ -90,6 +100,12 @@ function addPolygon(buffers, color, points) {
   }
 }
 
+// Initializes and returns the "buffers" object, which encapsulates all the
+// info about the vertex and index buffers, both for the GL objects and the JS
+// buffer objects that we use to push data into the GL buffers, and keep
+// around to avoid reallocations. The VAO also lives here.
+// Currently, model geometry is created here, because it is static. This will
+// change when that becomes dynamic.
 function initBuffers(squareAttribs) {
   const vao = vao_ext.createVertexArrayOES();
   vao_ext.bindVertexArrayOES(vao);
@@ -178,6 +194,8 @@ function initBuffers(squareAttribs) {
   return buffers;
 }
 
+// Initializes all the GL state, returning the gl_state object.
+// This includes shaders and buffers.
 function initGLState() {
   gl.clearColor(0.0, 0.0, 0.0, 1.0);
   gl.clearDepth(1.0);
@@ -224,16 +242,19 @@ function initGLState() {
   };
 }
 
-function makeRotation(dt) {
+// Construct the rotation matrix based on elapsed time.
+function makeRotation(time) {
   const speed = 0.001;
-  const cos = Math.cos(speed * dt);
-  const sin = Math.sin(speed * dt);
+  const cos = Math.cos(speed * time);
+  const sin = Math.sin(speed * time);
   modelMatrix[0] = cos;
   modelMatrix[2] = sin;
   modelMatrix[6] = -sin;
   modelMatrix[8] = cos;
 }
 
+// The render loop. This is the callback fired from requestAnimationFrame(),
+// which re-queues itself.
 function animate(time) {
   requestAnimationFrame(animate);
 
@@ -271,6 +292,7 @@ function animate(time) {
   gl.drawElements(gl.TRIANGLES, gl_state.buffers.indexCount, gl.UNSIGNED_SHORT, 0);
 }
 
+// Final global init and startup.
 const error_text = document.getElementById("error_text");
 const error_text2 = document.getElementById("error_text2");
 if (gl === null) {
