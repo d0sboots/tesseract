@@ -149,10 +149,10 @@ function initBuffers(squareAttribs) {
      1,  1, -1,
   ]);
   addPolygon(buffers, 0x0000FF00, [
-     1,  1, -1,
-     1,  1,  1,
-    -1,  1,  1,
-    -1,  1, -1,
+     1, -1, -1,
+     1, -1,  1,
+    -1, -1,  1,
+    -1, -1, -1,
   ]);
   addPolygon(buffers, 0x00FF0000, [
      1,  1, -1,
@@ -214,7 +214,7 @@ function initGLState() {
     uniform vec3 projVector;
 
     void main() {
-      const float view = 1.5;
+      const float view = 1.75;
       vec3 pos = modelMatrix * position;
       vec3 proj = projVector * pos;
       gl_Position = vec4(proj.xy, proj.z + view, -view*projVector.z - pos.z);
@@ -222,6 +222,7 @@ function initGLState() {
       normal_frag = normal;
     }`,
 
+    // Simple Blinn-Phong with a single light fixed at the camera position
    `precision highp float;
 
     varying vec3 normal_frag;
@@ -244,13 +245,27 @@ function initGLState() {
 
 // Construct the rotation matrix based on elapsed time.
 function makeRotation(time) {
-  const speed = 0.001;
-  const cos = Math.cos(speed * time);
-  const sin = Math.sin(speed * time);
-  modelMatrix[0] = cos;
-  modelMatrix[2] = sin;
-  modelMatrix[6] = -sin;
-  modelMatrix[8] = cos;
+  // We use a quaternion rotation, where each component is a sinusoid with
+  // different periods. This gives a wobbly, twisty rotation that never
+  // repeats.
+  const w = Math.cos(0.00059 * time);
+  const x = Math.sin(0.00097 * time);
+  const y = Math.sin(0.00071 * time);
+  const z = Math.sin(0.00083 * time);
+  const ww = w * w, xx = x * x, yy = y * y, zz = z * z;
+  const s = 2 / (ww + xx + yy + zz);
+  const wx = w * x, wy = w * y, wz = w * z;
+  const xy = x * y, xz = x * z;
+  const yz = y * z;
+  modelMatrix[0] = 1 - s * (yy + zz);
+  modelMatrix[1] = s * (xy - wz);
+  modelMatrix[2] = s * (xz + wy);
+  modelMatrix[3] = s * (xy + wz);
+  modelMatrix[4] = 1 - s * (xx + zz);
+  modelMatrix[5] = s * (yz - wx);
+  modelMatrix[6] = s * (xz - wy);
+  modelMatrix[7] = s * (yz + wx);
+  modelMatrix[8] = 1 - s * (xx + yy);
 }
 
 // The render loop. This is the callback fired from requestAnimationFrame(),
@@ -272,7 +287,7 @@ function animate(time) {
   const width = innerWidth;
   const height = innerHeight;
   const scale = Math.min(height, width);
-  const fov = 1 / Math.tan(30 / 2 * Math.PI / 180);
+  const fov = 1 / Math.tan(35 / 2 * Math.PI / 180);
   if (width !== canvas.width || height !== canvas.height) {
     canvas.width = width;
     canvas.height = height;
