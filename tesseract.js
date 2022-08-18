@@ -40,6 +40,9 @@ function initShaderProgram(vsSource, fsSource, attribs, uniforms) {
   const attribsResult = {}
   for (const a of attribs) {
     attribsResult[a] = gl.getAttribLocation(shaderProgram, a);
+    if (attribsResult[a] < 0) {
+      console.log('Attrib ' + a + ' not found!');
+    }
   }
   const uniformsResult = {}
   for (const u of uniforms) {
@@ -78,10 +81,10 @@ function addPolygon(buffers, color, points) {
   const max_ind = Math.abs(cross[0]) > Math.abs(cross[1]) ?
     (Math.abs(cross[0]) > Math.abs(cross[2]) ? 0 : 2) :
     (Math.abs(cross[1]) > Math.abs(cross[2]) ? 1 : 2);
-  const scale = 1.0 / Math.abs(cross[max_ind]);
-  const nx = Math.round((cross[0] * scale + 1.0) * 127.5);
-  const ny = Math.round((cross[1] * scale + 1.0) * 127.5);
-  const nz = Math.round((cross[2] * scale + 1.0) * 127.5);
+  const scale = 127.5 / Math.abs(cross[max_ind]);
+  const nx = Math.round(cross[0] * scale - .5) & 0xFF;
+  const ny = Math.round(cross[1] * scale - .5) & 0xFF;
+  const nz = Math.round(cross[2] * scale - .5) & 0xFF;
   const normal = nx | (ny << 8) | (nz << 16);
   const norm_color = [normal, color];
 
@@ -130,13 +133,13 @@ function initBuffers(squareAttribs) {
     indexCount: 0,
   };
 
-  addPolygon(buffers, 0x000000FF, [
+  addPolygon(buffers, 0x000A0AFF, [
     -1, -1,  1,
      1, -1,  1,
      1,  1,  1,
     -1,  1,  1,
   ]);
-  addPolygon(buffers, 0x000000FF, [
+  addPolygon(buffers, 0x000A0AFF, [
     -1,  1, -1,
      1,  1, -1,
      1, -1, -1,
@@ -154,13 +157,13 @@ function initBuffers(squareAttribs) {
     -1, -1,  1,
     -1, -1, -1,
   ]);
-  addPolygon(buffers, 0x00FF0000, [
+  addPolygon(buffers, 0x00FF0808, [
      1,  1, -1,
      1,  1,  1,
      1, -1,  1,
      1, -1, -1,
   ]);
-  addPolygon(buffers, 0x00FF0000, [
+  addPolygon(buffers, 0x00FF0808, [
     -1, -1, -1,
     -1, -1,  1,
     -1,  1,  1,
@@ -210,26 +213,62 @@ function initGLState() {
 
     varying vec3 normal_frag;
     varying vec3 color_frag;
+    varying vec3 pos_frag;
     uniform mat3 modelMatrix;
     uniform vec3 projVector;
 
     void main() {
       const float view = 1.75;
-      vec3 pos = modelMatrix * position;
-      vec3 proj = projVector * pos;
-      gl_Position = vec4(proj.xy, proj.z + view, -view*projVector.z - pos.z);
+      pos_frag = modelMatrix * position;
+      vec3 proj = projVector * pos_frag;
+      gl_Position = vec4(proj.xy, proj.z + view, -view*projVector.z - pos_frag.z);
       color_frag = color;
-      normal_frag = normal;
+      //normal_frag = normal;
+      normal_frag = modelMatrix * normal;
     }`,
 
-    // Simple Blinn-Phong with a single light fixed at the camera position
+    // Use isotropic New Ward with a single light fixed at the camera position
+    // Algorithm comes from https://gamedev.stackexchange.com/questions/185168/
    `precision highp float;
 
+    varying vec3 pos_frag;
     varying vec3 normal_frag;
     varying vec3 color_frag;
 
     void main() {
-      gl_FragColor = vec4(color_frag, 1.0);
+      const float ambientPower = .15;
+      const float diffusePower = .75;
+      const float shiny = 0.2;
+      const float alpha = .40;
+      const float PI = 3.14159265359;
+      const vec3 gamma = vec3(2.2);
+      const float invAlpha2 = 1.0 / (alpha * alpha);
+      // Would move this computation to CPU and pass invAlpha2 as uniform if alpha were a parameter
+      const float cFactor = invAlpha2 / PI;
+
+      // Lighting calculations happen in eye space. We get interpolated model
+      // coords from pos_frag, and have to translate to get eye coords.
+      // The depth value will exactly equal the "w" value, so we can use
+      // gl_FragCoord for this purpose.
+      vec3 eyeNormal = normalize(vec3(pos_frag.xy, 1.0 / gl_FragCoord.w));
+      // For now, the light source is the camera.
+      vec3 lightNormal = eyeNormal;
+      // Note this is *unnormalized*.
+      vec3 halfway = lightNormal + eyeNormal;
+      float dotP = dot(halfway, normal_frag);
+      float invDot2 = 1.0 / (dotP * dotP);
+      float semiNormalizedInvDot = dot(halfway, halfway) * invDot2;
+      // Note: You can't factor the exp(invAlpha2) part out as a constant term,
+      // you'll blow out the floating-point range if you try.
+      float specular = cFactor * exp(invAlpha2-invAlpha2*semiNormalizedInvDot) * semiNormalizedInvDot * invDot2;
+
+      float diffuse = dot(lightNormal, normal_frag);
+      diffuse = max(0.0, diffuse);
+      vec3 colorPre = (ambientPower + diffusePower * diffuse) * color_frag + vec3(specular * shiny * diffuse);
+
+      // No way to bind an SRGB framebuffer in WebGL, we have to do gamma
+      // correction ourselves.
+      gl_FragColor = vec4(pow(colorPre, gamma), 1.0);
     }`,
     ["position", "normal", "color"],
     ["projVector", "modelMatrix"],
