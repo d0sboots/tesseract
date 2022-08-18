@@ -7,6 +7,9 @@ const vao_ext = gl.getExtension("OES_vertex_array_object");
 var first_time; // First animation time
 var last_time;  // Last animation time
 var gl_state;   // Object containing *all* the persistent GL state
+var last_x, last_y;  // The mouse coords as of the last frame
+var curr_x, curr_y;  // The current mouse coords
+var throw_state = -1;  // Are we dragging/in throw mode?
 const modelMatrix = Float32Array.from([
   1.0, 0.0, 0.0,
   0.0, 1.0, 0.0,
@@ -283,7 +286,7 @@ function initGLState() {
 }
 
 // Construct the rotation matrix based on elapsed time.
-function makeRotation(time) {
+function makeDemoRotation(time) {
   // We use a quaternion rotation, where each component is a sinusoid with
   // different periods. This gives a wobbly, twisty rotation that never
   // repeats.
@@ -307,6 +310,49 @@ function makeRotation(time) {
   modelMatrix[8] = 1 - s * (xx + yy);
 }
 
+function applyMouseRotation(scale, dt) {
+  const speed = (-1.4 / scale) * (throw_state == 0 ? 1 : throw_state);
+  throw_state *= Math.exp(-dt * .004)
+  const dy = (curr_x - last_x) * speed;
+  const dx = (curr_y - last_y) * speed;
+  // We use a quaternion rotation, where w = 1, z = 0.
+  // Because sin x ~= x for small angles, this works as a linear approximation
+  // to rotations on a per-frame basis, but doesn't fail badly for huge
+  // motions.
+  const xx = dx * dx, yy = dy * dy;
+  const xy = dx * dy;
+  const s = 2 / (1 + xx + yy);
+  const mm0 = 1 - s * yy;
+  const mm1 = s * xy;
+  const mm2 = s * dy;
+  const mm3 = s * xy;
+  const mm4 = 1 - s * xx;
+  const mm5 = s * -dx;
+  const mm6 = s * -dy;
+  const mm7 = s * dx;
+  const mm8 = 1 - s * (xx + yy);
+  // Time to hand-code matrix multiplication, because why not
+  const temp0    = modelMatrix[0] * mm0 + modelMatrix[1] * mm3 + modelMatrix[2] * mm6;
+  const temp1    = modelMatrix[0] * mm1 + modelMatrix[1] * mm4 + modelMatrix[2] * mm7;
+  modelMatrix[2] = modelMatrix[0] * mm2 + modelMatrix[1] * mm5 + modelMatrix[2] * mm8;
+  modelMatrix[0] = temp0;
+  modelMatrix[1] = temp1;
+  const temp3    = modelMatrix[3] * mm0 + modelMatrix[4] * mm3 + modelMatrix[5] * mm6;
+  const temp4    = modelMatrix[3] * mm1 + modelMatrix[4] * mm4 + modelMatrix[5] * mm7;
+  modelMatrix[5] = modelMatrix[3] * mm2 + modelMatrix[4] * mm5 + modelMatrix[5] * mm8;
+  modelMatrix[3] = temp3;
+  modelMatrix[4] = temp4;
+  const temp6    = modelMatrix[6] * mm0 + modelMatrix[7] * mm3 + modelMatrix[8] * mm6;
+  const temp7    = modelMatrix[6] * mm1 + modelMatrix[7] * mm4 + modelMatrix[8] * mm7;
+  modelMatrix[8] = modelMatrix[6] * mm2 + modelMatrix[7] * mm5 + modelMatrix[8] * mm8;
+  modelMatrix[6] = temp6;
+  modelMatrix[7] = temp7;
+  if (throw_state == 0) {
+    last_x = curr_x;
+    last_y = curr_y;
+  }
+}
+
 // The render loop. This is the callback fired from requestAnimationFrame(),
 // which re-queues itself.
 function animate(time) {
@@ -319,6 +365,7 @@ function animate(time) {
     // Same frame, don't re-render.
     return;
   }
+  const dt = time - last_time;
   last_time = time;
 
   gl.useProgram(gl_state.shaders.square.program);
@@ -334,7 +381,11 @@ function animate(time) {
   }
 
   gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  makeRotation(time - first_time);
+  if (throw_state < 0) {
+    makeDemoRotation(time - first_time);
+  } else {
+    applyMouseRotation(scale, dt);
+  }
   const projVx = fov * scale / width;
   const projVy = fov * scale / height;
   const projVz = -fov;
@@ -344,6 +395,36 @@ function animate(time) {
     gl_state.shaders.square.uniforms.projVector, projVx, projVy, projVz);
   vao_ext.bindVertexArrayOES(gl_state.buffers.vao);
   gl.drawElements(gl.TRIANGLES, gl_state.buffers.indexCount, gl.UNSIGNED_SHORT, 0);
+}
+
+function onDown(e) {
+  if (e.button !== 0)
+    return;
+  canvas.onpointermove = onDrag;
+  canvas.setPointerCapture(e.pointerId);
+  last_x = e.x;
+  last_y = e.y;
+  curr_x = last_x;
+  curr_y = last_y;
+  throw_state = 0;
+  e.preventDefault();
+}
+
+function onUp(e) {
+  if (canvas.onpointermove == null)
+    return;
+  canvas.onpointermove = null;
+  canvas.releasePointerCapture(e.pointerId);
+  curr_x = e.x;
+  curr_y = e.y;
+  throw_state = 1.0;
+  e.preventDefault();
+}
+
+function onDrag(e) {
+  curr_x = e.x;
+  curr_y = e.y;
+  e.preventDefault();
 }
 
 // Final global init and startup.
@@ -359,6 +440,8 @@ Your browser is: <pre style="font-size:1vw">${navigator.userAgent}</pre>`;
 Your browser is: <pre style="font-size:1vw">${navigator.userAgent}</pre>`;
 } else {
   canvas.style.display = "initial";
+  canvas.onpointerdown = onDown;
+  canvas.onpointerup = onUp;
   error_text.style.display = "none";
   gl_state = initGLState();
   requestAnimationFrame(animate);
